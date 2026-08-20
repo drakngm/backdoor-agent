@@ -25,6 +25,7 @@ from app.hybrid.compiler import DecisionCompiler
 from app.workflow.executor import WorkflowExecutor
 from app.tools.registry import get_tool_registry
 from app.memory.hierarchical import HierarchicalMemory
+from app.trace.trace import FourLevelTrace
 from app.core.trace import generate_trace_id
 from app.core.execution_trace import ExecutionTrace, EventType
 from app.core.logging import get_logger, inject_trace_id
@@ -50,6 +51,7 @@ class HybridResult(BaseModel):
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
     report: dict[str, Any] = Field(default_factory=dict)
     memory_consolidation: dict[str, int] = Field(default_factory=dict)
+    trace: dict[str, Any] = Field(default_factory=dict)  # four-level trace replay
     mermaid: str = ""
     critical_path: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -100,10 +102,14 @@ class HybridAgent:
         trace_id = trace_id or generate_trace_id()
         trace_logger = inject_trace_id(logger, trace_id)
         trace = ExecutionTrace(trace_id=trace_id)
+        ftrace = FourLevelTrace(trace_id=trace_id, system=trace)
 
         metadata = self.analyzer.analyze(model_path)
         plan = DetectionPlan(trace_id=trace_id, model_metadata=metadata)
         results: dict[str, dict[str, Any]] = {}
+
+        # L4 audit: session start
+        ftrace.record_audit("session_start", f"task='{task[:60]}' model='{model_path}'")
 
         # Start an episodic (L1) session for this detection run.
         self.memory.start_session(trace_id)
@@ -131,6 +137,14 @@ class HybridAgent:
                 message=step.reasoning,
                 metadata={"step_id": step.step_id, "tool": step.tool_name},
             )
+            # L3 decision trace: structured CoT
+            if decision.cot is not None:
+                ftrace.record_cot(decision.cot)
+            # L4 audit: decision made
+            ftrace.record_audit(
+                "decision", step.reasoning,
+                {"step_id": step.step_id, "tool": step.tool_name},
+            )
             self.memory.remember({
                 "type": "reasoning",
                 "step_id": step.step_id,
@@ -147,6 +161,13 @@ class HybridAgent:
 
             for step_id, output in new_outputs.items():
                 self.memory.remember(self._to_episodic_entry(step_id, output))
+                # L2 data trace: input/output with content hashes
+                ftrace.record_data(
+                    step_id=step_id,
+                    tool_name=output.get("tool_name", "unknown"),
+                    input_data={**step.params, "trace_id": trace_id},
+                    output_data=output,
+                )
 
         if final_decision is None:
             final_decision = Decision(
@@ -154,6 +175,16 @@ class HybridAgent:
                 verdict="inconclusive",
                 final_answer=f"达到最大决策步数（{self.max_steps}），终止",
             )
+
+        # L3 decision trace: final verdict CoT
+        if final_decision.cot is not None:
+            ftrace.record_cot(final_decision.cot)
+        # L4 audit: finalize
+        ftrace.record_audit(
+            "finalize",
+            final_decision.final_answer or "",
+            {"verdict": final_decision.verdict, "confidence": final_decision.confidence},
+        )
 
         self.memory.remember({
             "type": "final_decision",
@@ -190,6 +221,7 @@ class HybridAgent:
             ],
             report=report,
             memory_consolidation=consolidation,
+            trace=ftrace.replay(),
             mermaid=trace.to_mermaid(),
             critical_path=trace.get_critical_path(),
         )

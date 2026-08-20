@@ -14,6 +14,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 from app.hybrid.model_analyzer import ModelMetadata
+from app.trace.models import CoTStep
 
 
 class DetectionStep(BaseModel):
@@ -62,3 +63,4 @@ class Decision(BaseModel):
     final_answer: Optional[str] = None
     verdict: Optional[str] = None
     confidence: float = 0.0
+    cot: Optional[CoTStep] = None
