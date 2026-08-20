@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # ---- Memory / Persistence ----
     data_dir: str = "./data"
     project_memory_path: str = "./data/project_memory.json"
+    # Hierarchical memory (M4): L1 episodic / L2 semantic / L3 procedural
+    episodic_window_size: int = 20
+    semantic_memory_path: str = "./data/semantic_memory.json"
+    procedural_memory_path: str = "./data/procedural_memory.json"
 
     # ---- Redis (optional) ----
     redis_url: Optional[str] = None
