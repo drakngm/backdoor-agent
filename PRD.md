@@ -297,7 +297,8 @@ class CoTStep(BaseModel):
 
 | 模块 | 文件 | 完成度 | 说明 |
 |------|------|--------|------|
-| Agent Loop | `app/agents/agent_loop.py` | 85% | LLM 抽象化，可注入任意 provider；决策闭环待 M3 |
+| Agent Loop | `app/agents/agent_loop.py` | 85% | LLM 抽象化，可注入任意 provider |
+| Hybrid Agent | `app/hybrid/*` | 90% | Agent 决策 → DAG 编译 → 执行 → 报告；接入分层记忆 + 四级 Trace |
 | Tool Router | `app/agents/tool_router.py` | 85% | Tool Calling 完整 |
 | Hook | `app/agents/hooks.py` | 85% | 决策模型 + 真实校验逻辑（PreToolUse 输入校验 / PostToolUse 结果验证）落地 |
 | LLM Provider | `app/llm/*` | 85% | LLMClient 抽象 + registry + mock/openai/anthropic 三实现 |
@@ -306,12 +307,12 @@ class CoTStep(BaseModel):
 | Registry | `app/tools/registry.py` | 95% | 完整 |
 | Mock Tools | `app/tools/mock_*.py` | 80% | 3 个可用 Mock |
 | 真实算法 | `app/security/*.py` | 40% | STRIP 已实现（纯 Python）+ STRIPTool；NC/AC 待实现 |
-| Workflow | `app/workflow/*` | 85% | DAG/策略/执行完整 |
+| Workflow | `app/workflow/*` | 85% | DAG/策略/执行完整 + execute_graph 支持增量调度 |
 | Planner | `app/workflow/planner.py` | 85% | 静态策略选择 |
-| Memory | `app/memory/*` | 75% | 上下文管理优化 + 确定性摘要；向量化/三层重映射待 M4 |
-| Trace | `app/core/execution_trace.py` | 65% | 仅系统级 span 树 |
+| Memory | `app/memory/*` | 90% | 三层分层记忆（L1 Redis 滑窗/L2 向量语义/L3 规则）+ 记忆固化 |
+| Trace | `app/core/execution_trace.py` + `app/trace/*` | 90% | 四级 Trace（系统/数据/决策/审计）+ 结构化 CoT + 回放/对比 + 内容寻址 |
 | Report | `app/report/generator.py` | 80% | 聚合可用，未接 CoT/审计 |
-| API | `app/api/*` | 85% | 三端点完整，缺 /replay |
+| API | `app/api/*` | 90% | 三端点 + /run_hybrid，缺 /replay |
 | Docker | `docker/*` | 30% | 接口预留，本期不实现 |
 
 ---
@@ -342,7 +343,7 @@ class CoTStep(BaseModel):
 - 长期规则记忆落地。
 - 验收：多轮追问可用；跨工具关联可检索。
 
-### M5 — Trace & Audit 完善（四级 + CoT + 回放）
+### M5 — Trace & Audit 完善（四级 + CoT + 回放）✅ 已完成
 - 定义四级 Trace 模型并集成。
 - 结构化 CoT 推理链建模。
 - 审计日志持久化 + `/replay/{trace_id}` 回放端点。
@@ -390,6 +391,7 @@ class CoTStep(BaseModel):
 | `app/agents/tool_router.py` | AR-1 |
 | `app/agents/hooks.py` | AR-3~5 |
 | `app/llm/*` | AR（LLM Provider 抽象） |
+| `app/hybrid/*` | HA-1~5（Agent 决策 → DAG 桥接） |
 | `app/tools/contract.py` | UTC-1 |
 | `app/tools/schemas.py` | UTC-2, UTC-5 |
 | `app/tools/base.py` | UTC-3, UTC-4 |
@@ -398,7 +400,12 @@ class CoTStep(BaseModel):
 | `app/tools/strip_tool.py` | UTC-6（真实 STRIP Tool） |
 | `app/security/strip_detector.py` | UTC-6（真实算法） |
 | `app/workflow/*` | HA-3~6 |
-| `app/memory/*` | MEM-1~5 |
+| `app/memory/hierarchical.py` `episodic_memory.py` | MEM-1（短期记忆） |
+| `app/memory/semantic_memory.py` | MEM-2（中期语义记忆） |
+| `app/memory/procedural_memory.py` | MEM-3（长期规则记忆） |
+| `app/memory/consolidation.py` | MEM-4（记忆巩固） |
+| `app/memory/working_memory.py` 等 | 上下文窗口管理（M2） |
+| `app/trace/*` | ET-1~5（四级 Trace + CoT + 回放） |
 | `app/core/execution_trace.py` | ET-1, ET-6 |
 | `app/core/trace.py` `logging.py` | NFR-3 |
 | `app/report/generator.py` | 报告产出（关联 ET-4） |
