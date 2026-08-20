@@ -1,54 +1,73 @@
 # 🔒 AI Backdoor Detection & Defense Agent System
 
-> **Production-grade AI agent for automated backdoor detection in deep learning models.**
+> **Hybrid AI agent for automated backdoor detection in deep learning models.**
 
-Built on a **3-layer architecture**:
-1. **Workflow Layer** (DeerFlow-style Planner + DAG execution)
-2. **Agent Runtime Layer** (Claude Code Harness-style LLM→Tool→Observe→Loop)
-3. **Shared Tool Layer** (Unified contract-based tool system with 4 detection algorithms)
+Combines an **Agent Loop** (high-level reasoning & detection strategy decisions) with a
+**DAG Workflow** (deterministic tool orchestration), a **unified tool contract**, a
+**3-layer hierarchical memory**, and a **four-level trace system** for full
+interpretability & auditability.
 
 ---
 
 ## 🏗 Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│              FastAPI ENTRY LAYER             │
-│  /health   /run_agent   /run_workflow        │
-└──────────────┬──────────────┬────────────────┘
-               │              │
-      ┌────────▼────┐   ┌─────▼──────────┐
-      │ Agent Mode   │   │ Workflow Mode   │
-      │ agent_loop   │   │ planner + DAG  │
-      │ tool_router  │   │ executor       │
-      │ hooks        │   │ strategies     │
-      └──────┬───────┘   └──────┬─────────┘
-             │                  │
-             └────────┬─────────┘
-                      ▼
-           ┌───────────────────┐
-           │  Shared Tool Layer │
-           │  ToolContract      │
-           │  ToolRegistry      │
-           │  Mock Tools (×3)   │
-           └───────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                   FastAPI ENTRY LAYER                        │
+│    /health   /run_agent   /run_workflow   /run_hybrid        │
+└───────────────┬──────────────┬──────────────┬────────────────┘
+                │              │              │
+      ┌─────────▼────┐  ┌──────▼──────┐  ┌────▼─────────────┐
+      │  Agent Mode   │  │ Workflow Mode│  │  Hybrid Mode     │
+      │  agent_loop   │  │ planner + DAG│  │  decision engine │
+      │  tool_router  │  │ executor     │  │  -> DAG compiler │
+      │  hooks        │  │ strategies   │  │  -> executor     │
+      └───────┬───────┘  └──────┬───────┘  └────────┬────────┘
+              │                 │                   │
+              └────────────┬────┴───────────────────┘
+                           ▼
+        ┌──────────────────────────────────────┐
+        │         Shared Tool Layer             │
+        │  ToolContract / ToolAdapter / Artifact │
+        │  ToolRegistry + Mock/Real detectors    │
+        └──────────────────────────────────────┘
+                           │
+        ┌──────────────────┼──────────────────────┐
+        ▼                  ▼                       ▼
+   LLM Provider      Hierarchical Memory      Four-Level Trace
+   (mock/openai/     (episodic/semantic/      (system/data/decision
+    anthropic)        procedural + 固化)        /audit + CoT + replay)
 ```
 
 ## 🔑 Key Features
 
-- **Dual Execution Modes**: Interactive Agent (LLM-driven) + Batch Workflow (DAG-driven)
-- **4-Layer Memory System**: Working → Session → Project → Knowledge (RAG)
-- **ToolContract Standard**: Every tool has validated input/output schemas, timeout, GPU requirements
-- **Execution Trace Graph**: Full span-tree tracing with Mermaid visualization
-- **Hook System**: BeforeTool/AfterTool/OnError lifecycle hooks
-- **Multi-Strategy Planner**: fast_scan / deep_scan / forensic_scan
-- **Standardized Safety Outputs**: confidence_score, risk_level (LOW/MEDIUM/HIGH), artifact tracking
+- **Hybrid Agent Architecture**: Agent Loop (LLM/rule-driven reasoning) + DAG Workflow
+  (deterministic execution). The agent decides tool selection & order based on model
+  metadata and intermediate results; each decision compiles into a DAG node.
+- **Three Execution Modes**: Agent (`/run_agent`), Workflow (`/run_workflow`), Hybrid (`/run_hybrid`)
+- **LLM Provider Abstraction**: `LLMClient` interface with mock / OpenAI / Anthropic
+  implementations (OpenAI-compatible endpoints like DeepSeek work out of the box via `.env`)
+- **Unified Tool Contract**: `ToolContract` (manifest) + `ToolAdapter` (Adapter pattern) +
+  standardized `Artifact` model — new detectors plug in by implementing one interface
+- **Pre/Post Hook Validation**: decision-based hooks (`allow`/`deny`) for input validation
+  (PreToolUse) and result verification (PostToolUse)
+- **3-Layer Hierarchical Memory**: Episodic (Redis sliding window) → Semantic (vector) →
+  Procedural (rules), with a memory-consolidation (固化) mechanism
+- **Four-Level Trace**: System spans → Data flow (hashed) → Decision CoT → immutable Audit
+  trail (hash-chained), with replay + cross-trace comparison
+- **Standardized Safety Outputs**: `confidence_score`, `risk_level` (LOW/MEDIUM/HIGH), artifacts
 
 ## 🚀 Quick Start
 
 ```bash
 # Install dependencies
 pip install -r requirements.txt
+
+# (Optional) configure LLM provider in .env
+#   BACKDOOR_LLM_PROVIDER=openai
+#   BACKDOOR_LLM_API_BASE_URL=https://opencode.ai/zen/go/v1
+#   BACKDOOR_LLM_API_KEY=sk-...
+#   BACKDOOR_LLM_MODEL=deepseek-v4-flash
 
 # Start development server
 python scripts/run_dev.py
@@ -63,28 +82,23 @@ API available at `http://localhost:8000/docs`
 | `GET` | `/health` | System health + registered tools + strategies |
 | `POST` | `/run_agent` | Agent Mode: LLM → Tool → Observation Loop |
 | `POST` | `/run_workflow` | Workflow Mode: Planner → DAG → Parallel Exec |
+| `POST` | `/run_hybrid` | Hybrid Mode: Agent decisions → DAG → report |
 
-### Example: Agent Mode
+### Example: Hybrid Mode (Agent decision + DAG execution)
 
 ```bash
-curl -X POST http://localhost:8000/run_agent \
+curl -X POST http://localhost:8000/run_hybrid \
   -H "Content-Type: application/json" \
-  -d '{"message": "Detect backdoors in model.h5"}'
+  -d '{"message": "检测一个 ResNet-18 模型中是否存在后门", "model_path": "resnet18.h5"}'
 ```
 
 Response includes:
-- `trace_id`: Unique correlation ID
-- `spans`: Complete execution chain (LLM calls + tool executions)
-- `mermaid`: Visual flowchart of the execution
-- `critical_path`: Longest-duration execution path
-
-### Example: Workflow Mode
-
-```bash
-curl -X POST http://localhost:8000/run_workflow \
-  -H "Content-Type: application/json" \
-  -d '{"strategy": "deep_scan", "model_path": "model.h5"}'
-```
+- `verdict` / `confidence` / `final_answer`: final detection conclusion
+- `decisions`: the agent's decision chain (tool + params + `depends_on`)
+- `tool_results`: standardized tool outputs (risk level, confidence, is_backdoor)
+- `trace`: four-level trace replay — `decisions` (CoT), `data_flow` (hashed), `audit`
+- `memory_consolidation`: L1→L2→L3 consolidation counts
+- `mermaid`: execution flow visualization
 
 ## 📁 Project Structure
 
@@ -92,20 +106,24 @@ curl -X POST http://localhost:8000/run_workflow \
 backdoor-agent/
 ├── app/
 │   ├── main.py                  # FastAPI entry point
-│   ├── entry/dispatcher.py      # Agent/Workflow mode dispatch
-│   ├── api/                     # REST endpoints (health, agent, workflow)
+│   ├── entry/dispatcher.py      # agent / workflow / hybrid mode dispatch
+│   ├── api/                     # REST endpoints (health, agent, workflow, hybrid)
 │   ├── agents/                  # Agent Runtime (agent_loop, tool_router, hooks)
+│   ├── hybrid/                  # Hybrid Agent (model_analyzer, decision_engine, compiler)
+│   ├── llm/                     # LLM Provider abstraction (base, registry, mock/openai/anthropic)
 │   ├── workflow/                # Workflow Engine (planner, task_graph, executor)
 │   │   └── strategies/          # Scan strategies (fast/deep/forensic)
-│   ├── tools/                   # Shared Tool Layer (contract, base, registry, mocks)
-│   ├── memory/                  # 4-Layer Memory (working, session, project, knowledge)
-│   ├── core/                    # Global infrastructure (config, trace, exceptions, logging)
-│   ├── security/                # Reserved: algorithm implementations
+│   ├── tools/                   # Tool layer (contract, base, adapter, registry, mocks)
+│   ├── memory/                  # Hierarchical memory (episodic/semantic/procedural + consolidation)
+│   ├── trace/                   # Four-level trace (models, audit, trace, hooks)
+│   ├── core/                    # Global infra (config, execution_trace, exceptions, logging)
+│   ├── security/                # Detection algorithm implementations
 │   └── report/                  # Report generator
 ├── configs/                     # YAML + Python settings (pydantic-settings)
 ├── tests/                       # pytest test suite
-├── docker/                      # Docker & docker-compose
+├── docker/                      # Docker & docker-compose (interface reserved)
 ├── scripts/                     # Dev scripts (run_dev, init_redis)
+├── PRD.md                       # Product requirements & milestone status
 └── README.md
 ```
 
@@ -122,17 +140,18 @@ pytest tests/ -v --asyncio-mode=auto
 - **FastAPI** — async REST API
 - **Pydantic v2** — schema validation
 - **asyncio** — concurrent execution
-- **YAML** — configuration
-- **Redis** — reserved for task queues (optional)
-- **Docker** — deployment
+- **Redis** — L1 episodic memory (optional, falls back to in-memory)
+- **Hashing embedder** — dependency-free text vectors (pluggable for `text-embedding-3-small`)
+- **Docker** — interface reserved (not implemented this phase)
 
-## 🔒 Security Tools (Mock Implementations)
+## 🔒 Detection Tools
 
-| Tool | Description | Tags |
-|------|-------------|------|
-| `strip_detect` | STRIP: Entropy-based perturbation detection | detection, gpu, fast_scan |
-| `neural_cleanse` | Neural Cleanse: Trigger reverse-engineering + MAD | detection, gpu, deep_scan |
-| `activation_clustering` | Activation Clustering: PCA/t-SNE + K-Means | detection, gpu, deep_scan |
+| Tool | Description | Status |
+|------|-------------|--------|
+| `strip_detect` | STRIP: entropy-based perturbation detection | Mock (random) |
+| `neural_cleanse` | Neural Cleanse: trigger reverse-engineering + MAD | Mock |
+| `activation_clustering` | Activation Clustering: PCA/t-SNE + K-Means | Mock |
+| `strip_detect_real` | Real STRIP algorithm (pure Python, injectable predictor) | Real |
 
 ## 📊 Scan Strategies
 
@@ -145,21 +164,33 @@ pytest tests/ -v --asyncio-mode=auto
 ## 🧠 Memory Architecture
 
 ```
-Working Memory (L1)  →  Current LLM reasoning window (~8K tokens)
-Session Memory (L2)  →  Full task conversation history
-Project Memory (L3)  →  Persistent reports + model fingerprints
-Knowledge Memory(L4) →  RAG: Security knowledge base (publications, best practices)
+L1 Episodic (短期)   →  Redis sliding window (N=20), keyword match, session-scoped
+L2 Semantic (中期)   →  vectorized findings (hashing embedder), semantic search,
+                        cross-session persistent (JSON)
+L3 Procedural (长期) →  structured rules + vectorized case base, strategy matching
+
+Memory Consolidation: L1 重要发现 → L2 语义记忆 → L3 已验证规则 (模拟记忆巩固)
 ```
 
-All layers follow a degrade strategy: L1→L2→L3→L4 fallback on cache miss.
+## 🔍 Trace Architecture (Four Levels)
+
+```
+L1 System   → span tree (tool start/end, durations, mermaid)
+L2 Data     → data flow (input → output) with sha256 content hashes
+L3 Decision → structured Chain-of-Thought (observation/reasoning/decision/alternatives)
+L4 Audit    → append-only, hash-chained immutable log (verify() detects tampering)
+```
+
+Every record is content-addressed; `replay()` reconstructs the full flow, and
+`compare()` diffs decision chains across models.
 
 ## 🔮 Production Path
 
-1. Replace Mock LLM with real API (OpenAI/Anthropic)
-2. Implement real detection algorithms in `app/security/`
-3. Add Redis/Celery for async task queues
-4. Replace Project Memory JSON with SQLite/PostgreSQL
-5. Add vector DB (ChromaDB/Pinecone) for Knowledge Memory
+1. ~~LLM Provider abstraction~~ ✅ (mock/openai/anthropic, configurable via `.env`)
+2. Implement Neural Cleanse & Activation Clustering real algorithms (STRIP done)
+3. Add Redis-backed task queues (Celery) for async workflows
+4. Replace hashing embedder with a real embedding service (e.g. `text-embedding-3-small`)
+5. Add `/replay/{trace_id}` endpoint backed by persisted trace storage
 6. Add authentication + rate limiting
 7. Integrate CI/CD webhooks
 
