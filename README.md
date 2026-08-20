@@ -2,6 +2,8 @@
 
 > **Hybrid AI agent for automated backdoor detection in deep learning models.**
 
+> **[中文版文档 → readme_Zh.md](./readme_Zh.md)**
+
 Combines an **Agent Loop** (high-level reasoning & detection strategy decisions) with a
 **DAG Workflow** (deterministic tool orchestration), a **unified tool contract**, a
 **3-layer hierarchical memory**, and a **four-level trace system** for full
