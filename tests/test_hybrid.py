@@ -18,6 +18,10 @@ from app.hybrid import (
     Decision,
 )
 from app.hybrid.model_analyzer import ModelMetadata
+from app.memory.hierarchical import HierarchicalMemory
+from app.memory.episodic_memory import EpisodicMemory
+from app.memory.semantic_memory import SemanticMemory
+from app.memory.procedural_memory import ProceduralMemory
 
 
 @pytest.fixture
@@ -27,6 +31,15 @@ def registry():
     reg.register(MockNeuralCleanseDetector())
     reg.register(MockActivationClusteringDetector())
     return reg
+
+
+def _make_memory(tmp_path) -> HierarchicalMemory:
+    return HierarchicalMemory(
+        episodic=EpisodicMemory(window_size=20),
+        semantic=SemanticMemory(filepath=str(tmp_path / "sem.json")),
+        procedural=ProceduralMemory(filepath=str(tmp_path / "proc.json")),
+        use_redis=False,
+    )
 
 
 def _meta(path="resnet18.h5", arch="resnet", conv=True) -> ModelMetadata:
@@ -141,7 +154,7 @@ class _ScriptedEngine:
 
 
 @pytest.mark.asyncio
-async def test_hybrid_agent_runs_and_builds_dag(registry):
+async def test_hybrid_agent_runs_and_builds_dag(registry, tmp_path):
     steps = [
         DetectionStep(step_id="strip_0", tool_name="strip_detect",
                       params={"model_path": "resnet18.h5", "num_samples": 100},
@@ -157,7 +170,8 @@ async def test_hybrid_agent_runs_and_builds_dag(registry):
                      confidence=0.85, final_answer="疑似后门")
     engine = _ScriptedEngine(steps, final)
 
-    agent = HybridAgent(engine=engine, executor=WorkflowExecutor(registry))
+    agent = HybridAgent(engine=engine, executor=WorkflowExecutor(registry),
+                        memory=_make_memory(tmp_path))
     result = await agent.run("检测 ResNet-18 是否存在后门", "resnet18.h5")
 
     assert result.verdict == "backdoor_suspected"
@@ -173,9 +187,43 @@ async def test_hybrid_agent_runs_and_builds_dag(registry):
 
 
 @pytest.mark.asyncio
-async def test_hybrid_agent_default_engine_runs(registry):
-    agent = HybridAgent(executor=WorkflowExecutor(registry))
+async def test_hybrid_agent_default_engine_runs(registry, tmp_path):
+    agent = HybridAgent(executor=WorkflowExecutor(registry), memory=_make_memory(tmp_path))
     result = await agent.run("detect backdoor", "resnet18.h5")
     assert result.trace_id.startswith("trc-")
     assert result.report["architecture"] == "resnet"
     assert result.verdict in ("clean", "backdoor_suspected", "inconclusive")
+
+
+@pytest.mark.asyncio
+async def test_hybrid_agent_writes_memory_and_consolidates(registry, tmp_path):
+    steps = [
+        DetectionStep(step_id="strip_0", tool_name="strip_detect",
+                      params={"model_path": "resnet18.h5", "num_samples": 100},
+                      reasoning="run strip"),
+        DetectionStep(step_id="nc_0", tool_name="neural_cleanse",
+                      params={"model_path": "resnet18.h5", "num_classes": 10},
+                      depends_on=["strip_0"], reasoning="run nc"),
+        DetectionStep(step_id="ac_0", tool_name="activation_clustering",
+                      params={"model_path": "resnet18.h5", "layer_name": "dense_2", "n_clusters": 3},
+                      depends_on=["nc_0"], reasoning="run ac"),
+    ]
+    final = Decision(is_final=True, verdict="backdoor_suspected",
+                     confidence=0.85, final_answer="疑似后门")
+    engine = _ScriptedEngine(steps, final)
+    memory = _make_memory(tmp_path)
+
+    agent = HybridAgent(engine=engine, executor=WorkflowExecutor(registry), memory=memory)
+    result = await agent.run("检测 ResNet-18 是否存在后门", "resnet18.h5")
+
+    # L1 episodic memory captured the whole session
+    entries = memory.episodic.recent()
+    assert any(e["type"] == "task" for e in entries)
+    assert sum(1 for e in entries if e["type"] == "reasoning") == 3
+    assert sum(1 for e in entries if e["type"] == "observation") == 3
+    assert any(e["type"] == "final_decision" for e in entries)
+
+    # consolidation was triggered (L1 -> L2 -> L3)
+    assert "l1_to_l2" in result.memory_consolidation
+    assert "l2_to_l3" in result.memory_consolidation
+    assert result.report["memory_consolidation"] == result.memory_consolidation

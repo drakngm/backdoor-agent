@@ -85,7 +85,8 @@ class WorkflowExecutor:
                 the Hybrid Agent.
 
         Returns:
-            dict mapping task_id → tool output dict.
+            dict mapping task_id → output dict for NEWLY-executed tasks only
+            (cached nodes are excluded).
 
         Raises:
             WorkflowExecutionError: If any task fails.
@@ -98,7 +99,7 @@ class WorkflowExecutor:
         tiers = graph.topological_tiers()
         trace_logger.info(f"Executing DAG: {len(tiers)} tiers, {len(graph)} tasks")
 
-        task_outputs: dict[str, dict[str, Any]] = dict(cache)
+        task_outputs: dict[str, dict[str, Any]] = {}
 
         for tier_idx, tier_task_ids in enumerate(tiers):
             # Skip cached nodes (already executed in a prior iteration).

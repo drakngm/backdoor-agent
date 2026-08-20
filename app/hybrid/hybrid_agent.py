@@ -24,6 +24,7 @@ from app.hybrid.decision_engine import DecisionEngine
 from app.hybrid.compiler import DecisionCompiler
 from app.workflow.executor import WorkflowExecutor
 from app.tools.registry import get_tool_registry
+from app.memory.hierarchical import HierarchicalMemory
 from app.core.trace import generate_trace_id
 from app.core.execution_trace import ExecutionTrace, EventType
 from app.core.logging import get_logger, inject_trace_id
@@ -48,6 +49,7 @@ class HybridResult(BaseModel):
     decisions: list[dict[str, Any]] = Field(default_factory=list)
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
     report: dict[str, Any] = Field(default_factory=dict)
+    memory_consolidation: dict[str, int] = Field(default_factory=dict)
     mermaid: str = ""
     critical_path: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -58,6 +60,9 @@ class HybridAgent:
     """
     Hybrid Agent: Agent Loop (high-level decisions) + DAG Workflow (deterministic
     execution), connected via the decision compiler.
+
+    Detection episodes are written into the HierarchicalMemory (L1) during the
+    run; important findings are consolidated L1 -> L2 -> L3 at the end.
     """
 
     def __init__(
@@ -66,11 +71,13 @@ class HybridAgent:
         engine: Optional[DecisionEngine] = None,
         compiler: Optional[DecisionCompiler] = None,
         executor: Optional[WorkflowExecutor] = None,
+        memory: Optional[HierarchicalMemory] = None,
     ):
         self.analyzer = analyzer or ModelAnalyzer()
         self.engine = engine or DecisionEngine()
         self.compiler = compiler or DecisionCompiler()
         self.executor = executor or WorkflowExecutor(get_tool_registry())
+        self.memory = memory or HierarchicalMemory()
         self.max_steps = getattr(self.engine, "max_steps", 10)
 
     async def run(
@@ -98,6 +105,15 @@ class HybridAgent:
         plan = DetectionPlan(trace_id=trace_id, model_metadata=metadata)
         results: dict[str, dict[str, Any]] = {}
 
+        # Start an episodic (L1) session for this detection run.
+        self.memory.start_session(trace_id)
+        self.memory.remember({
+            "type": "task",
+            "content": task,
+            "model_path": model_path,
+            "architecture": metadata.architecture,
+        })
+
         trace_logger.info(f"Hybrid agent started: task='{task[:60]}' model='{model_path}'")
 
         final_decision: Optional[Decision] = None
@@ -115,6 +131,12 @@ class HybridAgent:
                 message=step.reasoning,
                 metadata={"step_id": step.step_id, "tool": step.tool_name},
             )
+            self.memory.remember({
+                "type": "reasoning",
+                "step_id": step.step_id,
+                "tool": step.tool_name,
+                "content": step.reasoning,
+            })
 
             # Compile the (growing) plan into a DAG and execute deterministically.
             graph = self.compiler.compile(plan)
@@ -123,6 +145,9 @@ class HybridAgent:
             )
             results.update(new_outputs)
 
+            for step_id, output in new_outputs.items():
+                self.memory.remember(self._to_episodic_entry(step_id, output))
+
         if final_decision is None:
             final_decision = Decision(
                 is_final=True,
@@ -130,7 +155,17 @@ class HybridAgent:
                 final_answer=f"达到最大决策步数（{self.max_steps}），终止",
             )
 
-        report = self._build_report(metadata, final_decision, plan, results)
+        self.memory.remember({
+            "type": "final_decision",
+            "verdict": final_decision.verdict,
+            "confidence": final_decision.confidence,
+            "content": final_decision.final_answer,
+        })
+
+        # Session ends -> consolidate L1 -> L2 -> L3.
+        consolidation = self.memory.consolidate()
+
+        report = self._build_report(metadata, final_decision, plan, results, consolidation)
         trace.finalize()
 
         return HybridResult(
@@ -154,9 +189,24 @@ class HybridAgent:
                 for sid, r in results.items()
             ],
             report=report,
+            memory_consolidation=consolidation,
             mermaid=trace.to_mermaid(),
             critical_path=trace.get_critical_path(),
         )
+
+    @staticmethod
+    def _to_episodic_entry(step_id: str, output: dict[str, Any]) -> dict[str, Any]:
+        """Convert a tool output dict into an L1 episodic memory entry."""
+        return {
+            "type": "observation",
+            "step_id": step_id,
+            "tool": output.get("tool_name"),
+            "tool_name": output.get("tool_name"),
+            "success": output.get("success"),
+            "risk_level": _as_str(output.get("risk_level")),
+            "confidence": output.get("confidence_score"),
+            "data": output.get("data") or {},
+        }
 
     def _build_report(
         self,
@@ -164,6 +214,7 @@ class HybridAgent:
         decision: Decision,
         plan: DetectionPlan,
         results: dict[str, dict[str, Any]],
+        consolidation: Optional[dict[str, int]] = None,
     ) -> dict[str, Any]:
         return {
             "report_id": f"report-{plan.trace_id}",
@@ -176,5 +227,6 @@ class HybridAgent:
             "final_answer": decision.final_answer,
             "steps_executed": len(plan.steps),
             "tools_executed": len(results),
+            "memory_consolidation": consolidation or {},
             "decision_snapshot": plan.snapshot(),
         }
