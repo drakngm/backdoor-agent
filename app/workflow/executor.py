@@ -3,6 +3,8 @@ WorkflowExecutor: Executes a TaskGraph DAG by calling tools via ToolRegistry.
 
 Supports:
   - Topological tier parallel execution (tasks in same tier run concurrently)
+  - Executing an arbitrary (dynamically built) TaskGraph via `execute_graph`
+  - Incremental execution with a result cache (for Hybrid Agent scheduling)
   - Full trace integration via ExecutionTrace
   - Tool call routing via ToolRouter
 """
@@ -15,7 +17,7 @@ from app.workflow.planner import Planner
 from app.tools.registry import ToolRegistry, get_tool_registry
 from app.agents.tool_router import ToolRouter, ToolCallRequest
 from app.core.trace import generate_trace_id
-from app.core.execution_trace import ExecutionTrace, SpanType, SpanStatus
+from app.core.execution_trace import ExecutionTrace, SpanType
 from app.core.logging import get_logger, inject_trace_id
 from app.core.exceptions import WorkflowExecutionError
 
@@ -57,21 +59,54 @@ class WorkflowExecutor:
             WorkflowExecutionError: If any task fails.
         """
         trace_id = trace_id or generate_trace_id()
-        trace_logger = inject_trace_id(logger, trace_id)
         trace = ExecutionTrace(trace_id=trace_id)
 
-        trace_logger.info(f"Workflow execution started: strategy={strategy_name}")
-
-        # Step 1: Plan
         graph = self.planner.plan(strategy_name, self.registry, trace_id=trace_id, **kwargs)
-        tiers = graph.topological_tiers()
-        trace_logger.info(f"Workflow plan: {len(tiers)} tiers, {len(graph)} tasks")
+        await self.execute_graph(graph, trace_id=trace_id, trace=trace)
+        trace.finalize()
+        return trace
 
-        # Step 2: Execute tier by tier
-        task_outputs: dict[str, dict[str, Any]] = {}
+    async def execute_graph(
+        self,
+        graph: TaskGraph,
+        trace_id: Optional[str] = None,
+        trace: Optional[ExecutionTrace] = None,
+        cache: Optional[dict[str, dict[str, Any]]] = None,
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Execute an arbitrary (dynamically built) TaskGraph.
+
+        Args:
+            graph: The DAG to execute.
+            trace_id: Optional trace ID (generated if not provided).
+            trace: Optional shared ExecutionTrace to write spans into.
+            cache: Optional dict mapping task_id → output dict for nodes already
+                executed (skipped, not re-run). Enables incremental scheduling by
+                the Hybrid Agent.
+
+        Returns:
+            dict mapping task_id → tool output dict.
+
+        Raises:
+            WorkflowExecutionError: If any task fails.
+        """
+        trace_id = trace_id or generate_trace_id()
+        trace = trace or ExecutionTrace(trace_id=trace_id)
+        trace_logger = inject_trace_id(logger, trace_id)
+        cache = cache or {}
+
+        tiers = graph.topological_tiers()
+        trace_logger.info(f"Executing DAG: {len(tiers)} tiers, {len(graph)} tasks")
+
+        task_outputs: dict[str, dict[str, Any]] = dict(cache)
 
         for tier_idx, tier_task_ids in enumerate(tiers):
-            trace_logger.info(f"Executing tier {tier_idx}: {tier_task_ids}")
+            # Skip cached nodes (already executed in a prior iteration).
+            pending = [tid for tid in tier_task_ids if tid not in cache]
+            if not pending:
+                continue
+
+            trace_logger.info(f"Executing tier {tier_idx}: {pending}")
 
             async def execute_task(tid: str) -> tuple[str, Optional[dict], Optional[str]]:
                 task = graph.get_task(tid)
@@ -82,7 +117,6 @@ class WorkflowExecutor:
                 )
                 span.start()
 
-                # Build tool call request with trace_id
                 params = dict(task.params)
                 params["trace_id"] = trace_id
 
@@ -98,13 +132,11 @@ class WorkflowExecutor:
                     task.status = "failed"
                     return tid, None, str(e)
 
-            # Run all tasks in current tier concurrently
             results = await asyncio.gather(
-                *[execute_task(tid) for tid in tier_task_ids],
+                *[execute_task(tid) for tid in pending],
                 return_exceptions=False,
             )
 
-            # Check for failures
             failed_tasks = []
             for tid, output, error in results:
                 if error:
@@ -121,12 +153,5 @@ class WorkflowExecutor:
                     details={"failed_tasks": [{"task_id": t, "error": e} for t, e in failed_tasks]},
                 )
 
-        # Step 3: Finalize trace
-        trace.finalize()
-        trace_logger.info(
-            f"Workflow finished: status={trace.status.value}, "
-            f"duration={trace.total_duration_ms:.0f}ms, "
-            f"tasks_completed={len(task_outputs)}"
-        )
-
-        return trace
+        trace_logger.info(f"DAG execution finished: tasks_completed={len(task_outputs)}")
+        return task_outputs

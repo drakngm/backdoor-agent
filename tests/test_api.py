@@ -54,3 +54,21 @@ async def test_run_workflow_fast_scan(app):
     data = response.json()
     assert data["mode"] == "workflow"
     assert data["strategy"] == "fast_scan"
+
+
+@pytest.mark.asyncio
+async def test_run_hybrid(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/run_hybrid",
+            json={"message": "检测 ResNet-18 是否存在后门", "model_path": "resnet18.h5"},
+            timeout=30.0,
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "hybrid"
+    assert data["model_metadata"]["architecture"] == "resnet"
+    assert "verdict" in data
+    assert "decisions" in data
+    assert "report" in data

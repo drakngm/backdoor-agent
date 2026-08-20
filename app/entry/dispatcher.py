@@ -13,6 +13,7 @@ from typing import Any, Optional
 from app.core.logging import get_logger
 from app.core.trace import generate_trace_id
 from app.agents.agent_loop import AgentLoop
+from app.hybrid import HybridAgent
 from app.workflow.planner import Planner
 from app.workflow.executor import WorkflowExecutor
 from app.tools.registry import get_tool_registry
@@ -28,6 +29,7 @@ class Dispatcher:
         disp = Dispatcher()
         result = await disp.dispatch(mode="agent", input={"message": "detect model.h5"})
         result = await disp.dispatch(mode="workflow", input={"strategy": "deep_scan", "model_path": "model.h5"})
+        result = await disp.dispatch(mode="hybrid", input={"message": "检测模型", "model_path": "model.h5"})
     """
 
     def __init__(self):
@@ -35,16 +37,18 @@ class Dispatcher:
         self.agent = AgentLoop()
         self.planner = Planner()
         self.executor = WorkflowExecutor(self.registry)
+        self.hybrid = HybridAgent(executor=WorkflowExecutor(self.registry))
 
     async def dispatch(self, mode: str, input_data: dict[str, Any], trace_id: Optional[str] = None) -> dict[str, Any]:
         """
-        Route to Agent or Workflow mode.
+        Route to Agent, Workflow, or Hybrid mode.
 
         Args:
-            mode: "agent" or "workflow"
+            mode: "agent", "workflow", or "hybrid"
             input_data:
                 For agent: {"message": str}
                 For workflow: {"strategy": str, "model_path": str, ...}
+                For hybrid: {"message"|"task": str, "model_path": str}
             trace_id: Optional trace ID.
 
         Returns:
@@ -56,8 +60,10 @@ class Dispatcher:
             return await self._run_agent(input_data, trace_id)
         elif mode == "workflow":
             return await self._run_workflow(input_data, trace_id)
+        elif mode == "hybrid":
+            return await self._run_hybrid(input_data, trace_id)
         else:
-            raise ValueError(f"Unknown mode: {mode}. Use 'agent' or 'workflow'.")
+            raise ValueError(f"Unknown mode: {mode}. Use 'agent', 'workflow', or 'hybrid'.")
 
     async def _run_agent(self, input_data: dict[str, Any], trace_id: str) -> dict[str, Any]:
         """Execute Agent Mode."""
@@ -105,4 +111,30 @@ class Dispatcher:
             "span_tree": trace.get_span_tree(),
             "critical_path": trace.get_critical_path(),
             "mermaid": trace.to_mermaid(),
+        }
+
+    async def _run_hybrid(self, input_data: dict[str, Any], trace_id: str) -> dict[str, Any]:
+        """Execute Hybrid Mode (Agent Loop decisions → DAG Workflow execution)."""
+        task = input_data.get("message") or input_data.get("task") or ""
+        model_path = input_data.get("model_path", "model.h5")
+
+        if not task:
+            raise ValueError("Hybrid mode requires 'message' or 'task' in input_data")
+
+        logger.info(f"Dispatcher → Hybrid Mode: task='{task[:60]}' model={model_path}")
+        result = await self.hybrid.run(task=task, model_path=model_path, trace_id=trace_id)
+
+        return {
+            "trace_id": result.trace_id,
+            "mode": "hybrid",
+            "status": result.status,
+            "verdict": result.verdict,
+            "confidence": result.confidence,
+            "final_answer": result.final_answer,
+            "model_metadata": result.model_metadata.model_dump(),
+            "decisions": result.decisions,
+            "tool_results": result.tool_results,
+            "report": result.report,
+            "mermaid": result.mermaid,
+            "critical_path": result.critical_path,
         }
