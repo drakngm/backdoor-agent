@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  backdoor-agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - BACKDOOR_DEBUG=true
+      - BACKDOOR_HOST=0.0.0.0
+      - BACKDOOR_PORT=8000
+      - BACKDOOR_DATA_DIR=/app/data
+    volumes:
+      - ../data:/app/data
+    restart: unless-stopped
+
+  # Optional: Redis for future task queue support
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #
+  # volumes:
+  #   redis_data:

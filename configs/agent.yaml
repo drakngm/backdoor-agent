@@ -1,0 +1,50 @@
+# Agent Runtime Configuration
+# This file provides overridable defaults for the agent runtime behavior.
+
+agent:
+  name: "BackdoorDetectionAgent"
+  description: "AI-powered backdoor detection and defense agent"
+  max_iterations: 15
+  loop_timeout_seconds: 300
+  working_memory_max_tokens: 8000
+
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  temperature: 0.1
+  max_tokens: 4096
+  # API key should be set via BACKDOOR_LLM_API_KEY env var, NOT here
+
+tools:
+  enabled_tools:
+    - model_loader
+    - strip_detect
+    - neural_cleanse
+    - activation_clustering
+    - spectral_signature
+    - report_generator
+  default_timeout_ms: 30000
+  max_retries: 2
+
+workflow:
+  default_strategy: "fast_scan"
+  strategies:
+    fast_scan:
+      enabled: true
+      tools: [model_loader, strip_detect]
+    deep_scan:
+      enabled: true
+      tools: [model_loader, strip_detect, neural_cleanse, activation_clustering]
+    forensic_scan:
+      enabled: true
+      tools: [model_loader, strip_detect, neural_cleanse, activation_clustering, spectral_signature]
+
+memory:
+  project_memory_path: "./data/project_memory.json"
+  trace_storage_dir: "./data/traces"
+
+hooks:
+  enabled: true
+  before_tool: true
+  after_tool: true
+  on_error: true
