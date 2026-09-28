@@ -17,6 +17,7 @@ from app.hybrid import HybridAgent
 from app.workflow.planner import Planner
 from app.workflow.executor import WorkflowExecutor
 from app.tools.registry import get_tool_registry
+from app.trace.store import TraceStore
 
 logger = get_logger(__name__)
 
@@ -57,13 +58,33 @@ class Dispatcher:
         trace_id = trace_id or generate_trace_id()
 
         if mode == "agent":
-            return await self._run_agent(input_data, trace_id)
+            result = await self._run_agent(input_data, trace_id)
         elif mode == "workflow":
-            return await self._run_workflow(input_data, trace_id)
+            result = await self._run_workflow(input_data, trace_id)
         elif mode == "hybrid":
-            return await self._run_hybrid(input_data, trace_id)
+            result = await self._run_hybrid(input_data, trace_id)
         else:
             raise ValueError(f"Unknown mode: {mode}. Use 'agent', 'workflow', or 'hybrid'.")
+
+        self._persist_trace(mode, result)
+        return result
+
+    def _persist_trace(self, mode: str, result: dict[str, Any]) -> None:
+        """Persist the execution trace so it can be replayed by trace_id."""
+        replay = result.get("trace") or {}
+        TraceStore().save(
+            {
+                "trace_id": result["trace_id"],
+                "mode": mode,
+                "status": result.get("status"),
+                "decisions": replay.get("decisions", []),
+                "data_flow": replay.get("data_flow", []),
+                "audit": replay.get("audit"),
+                "audit_verified": replay.get("audit_verified"),
+                "system_spans": replay.get("system_spans", []),
+                "mermaid": result.get("mermaid", ""),
+            }
+        )
 
     async def _run_agent(self, input_data: dict[str, Any], trace_id: str) -> dict[str, Any]:
         """Execute Agent Mode."""
@@ -91,6 +112,15 @@ class Dispatcher:
             "critical_path": trace.get_critical_path(),
             "mermaid": trace.to_mermaid(),
             "final_answer": final_llm,
+            "trace": {
+                "trace_id": trace.trace_id,
+                "status": trace.status.value,
+                "decisions": [],
+                "data_flow": [],
+                "audit": None,
+                "audit_verified": None,
+                "system_spans": [s.model_dump() for s in trace.spans],
+            },
         }
 
     async def _run_workflow(self, input_data: dict[str, Any], trace_id: str) -> dict[str, Any]:
@@ -111,6 +141,15 @@ class Dispatcher:
             "span_tree": trace.get_span_tree(),
             "critical_path": trace.get_critical_path(),
             "mermaid": trace.to_mermaid(),
+            "trace": {
+                "trace_id": trace.trace_id,
+                "status": trace.status.value,
+                "decisions": [],
+                "data_flow": [],
+                "audit": None,
+                "audit_verified": None,
+                "system_spans": [s.model_dump() for s in trace.spans],
+            },
         }
 
     async def _run_hybrid(self, input_data: dict[str, Any], trace_id: str) -> dict[str, Any]:
@@ -135,6 +174,7 @@ class Dispatcher:
             "decisions": result.decisions,
             "tool_results": result.tool_results,
             "report": result.report,
+            "trace": result.trace,
             "mermaid": result.mermaid,
             "critical_path": result.critical_path,
         }
