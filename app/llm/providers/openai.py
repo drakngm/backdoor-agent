@@ -58,7 +58,12 @@ class OpenAILLMClient(LLMClient):
             )
 
         payload = self._build_request(messages, tools)
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            # opencode.ai `/zen/go/v1` requires a session header for routing.
+            "x-opencode-session": trace_id or "default-session",
+        }
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:

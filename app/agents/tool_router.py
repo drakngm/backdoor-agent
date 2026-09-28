@@ -107,12 +107,13 @@ class ToolRouter:
         return list(await asyncio.gather(*tasks, return_exceptions=False))
 
     def get_available_tools_for_llm(self) -> list[dict[str, Any]]:
-        """Generate LLM-friendly tool descriptions."""
+        """Generate LLM-friendly tool descriptions (with input JSON schema)."""
         tools_list = []
         for tool in self.registry.list_all():
             tools_list.append({
                 "name": tool.contract.name,
                 "description": tool.contract.description,
+                "parameters": tool.contract.input_schema.model_json_schema(),
                 "timeout_ms": tool.contract.timeout_ms,
                 "requires_gpu": tool.contract.requires_gpu,
                 "tags": tool.contract.tags,

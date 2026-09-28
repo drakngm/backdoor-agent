@@ -215,8 +215,8 @@ class WorkingMemory(BaseMemory):
         return summary
 
     def get_context_for_llm(self) -> list[dict[str, Any]]:
-        """Return the current message list suitable for LLM API call."""
-        return list(self.messages)
+        """Return the current message list suitable for LLM API call (role+content only)."""
+        return [{"role": m["role"], "content": m["content"]} for m in self.messages]
 
     def get_latest_observation(self) -> Optional[dict[str, Any]]:
         """Return the most recent tool observation."""
