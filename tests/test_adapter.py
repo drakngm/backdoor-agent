@@ -163,20 +163,26 @@ def _constant_predictor(dist):
     return predict
 
 
-def test_strip_detects_confident_backdoor():
-    # Predictor always returns a confident (low entropy) distribution.
-    detector = STRIPDetector(_constant_predictor([1.0, 0.0]))
-    result = detector.run(samples=[[0.1, 0.2]], num_samples=20, seed=42)
-    assert result.mean_entropy < 0.5
+def _trigger_backdoor_predictor(batch):
+    """Backdoored predictor: feature 0 > 0.5 (trigger) -> confident class 0."""
+    return [[1.0, 0.0] if s[0] > 0.5 else [0.5, 0.5] for s in batch]
+
+
+def test_strip_detects_backdoor_via_entropy_drop():
+    # Clean input sits just below the trigger threshold; perturbation crosses it
+    # and the prediction collapses to a confident (low-entropy) class.
+    detector = STRIPDetector(_trigger_backdoor_predictor)
+    result = detector.run(samples=[[0.4, 0.0]], num_samples=60, perturbation_strength=0.5, seed=42)
     assert result.is_backdoor is True
+    assert result.entropy_drop > 0.3
 
 
-def test_strip_clean_for_uncertain_predictor():
-    # Predictor always returns a uniform (high entropy) distribution.
+def test_strip_clean_for_uniform_predictor():
+    # Uniform predictor: perturbation never makes it confident -> no entropy drop.
     detector = STRIPDetector(_constant_predictor([0.5, 0.5]))
     result = detector.run(samples=[[0.1, 0.2]], num_samples=20, seed=42)
-    assert result.mean_entropy > 0.5
     assert result.is_backdoor is False
+    assert result.entropy_drop < 0.3
 
 
 def test_strip_deterministic_with_seed():
@@ -213,13 +219,14 @@ async def test_strip_tool_routes_successfully():
 @pytest.mark.asyncio
 async def test_strip_tool_respects_injected_predictor():
     registry = ToolRegistry()
-    registry.register(STRIPTool(predict_fn=_constant_predictor([1.0, 0.0]), samples=[[0.1, 0.2]]))
+    registry.register(STRIPTool(predict_fn=_trigger_backdoor_predictor, samples=[[0.4, 0.0]]))
     router = ToolRouter(registry)
 
     out = await router.route(
         ToolCallRequest(
             tool_name="strip_detect_real",
-            input_data={"trace_id": "trc-2", "model_path": "m.h5", "num_samples": 20},
+            input_data={"trace_id": "trc-2", "model_path": "m.h5",
+                        "num_samples": 60, "perturbation_strength": 0.5},
         )
     )
     assert out.is_backdoor is True

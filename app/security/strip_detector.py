@@ -49,6 +49,9 @@ class STRIPResult:
     """Outcome of a STRIP detection run."""
 
     mean_entropy: float
+    clean_entropy: float
+    min_entropy: float
+    entropy_drop: float
     entropy_variance: float
     is_backdoor: bool
     threshold: float
@@ -100,6 +103,8 @@ class STRIPDetector:
         if seed is not None:
             random.seed(seed)
 
+        clean_entropy = sum(entropy(self.predict([s])[0]) for s in samples) / len(samples)
+
         per_round = max(1, num_samples // len(samples))
         total_perturbations = per_round * len(samples)
 
@@ -113,18 +118,22 @@ class STRIPDetector:
                 perturbed_entropies.append(entropy(probs))
 
         mean_entropy = sum(perturbed_entropies) / len(perturbed_entropies)
+        min_entropy = min(perturbed_entropies)
         variance = sum((e - mean_entropy) ** 2 for e in perturbed_entropies) / len(perturbed_entropies)
 
         if threshold is None:
-            # Heuristic: a confident (backdoored) predictor stays below 0.5 nats.
-            threshold = 0.5
+            # Backdoor signature: some perturbation makes the model anomalously
+            # confident (entropy collapses). Flag when that drop is large enough.
+            threshold = 0.3
 
-        # Low mean entropy under perturbation => predictions remain confident =>
-        # signature of a backdoor trigger.
-        is_backdoor = mean_entropy < threshold
+        entropy_drop = clean_entropy - min_entropy
+        is_backdoor = entropy_drop > threshold
 
         return STRIPResult(
             mean_entropy=round(mean_entropy, 4),
+            clean_entropy=round(clean_entropy, 4),
+            min_entropy=round(min_entropy, 4),
+            entropy_drop=round(entropy_drop, 4),
             entropy_variance=round(variance, 4),
             is_backdoor=is_backdoor,
             threshold=threshold,

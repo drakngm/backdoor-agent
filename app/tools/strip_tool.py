@@ -132,15 +132,16 @@ class STRIPTool(ToolAdapter):
             perturbation_strength=input_data.perturbation_strength,
         )
 
+        drop = result.entropy_drop
         if result.is_backdoor:
-            confidence = min(1.0, 1.0 - result.mean_entropy)
-            risk = RiskLevel.HIGH if result.mean_entropy < 0.5 * result.threshold else RiskLevel.MEDIUM
+            confidence = min(1.0, drop)
+            risk = RiskLevel.HIGH if drop > 2 * result.threshold else RiskLevel.MEDIUM
         else:
-            confidence = min(1.0, result.mean_entropy)
+            confidence = max(0.0, 1.0 - drop)
             risk = RiskLevel.LOW
 
         logger.info(
-            f"[strip_detect_real] mean_entropy={result.mean_entropy}, "
+            f"[strip_detect_real] entropy_drop={result.entropy_drop}, "
             f"backdoor={result.is_backdoor}, risk={risk.value}",
             extra={"trace_id": input_data.trace_id},
         )
@@ -151,6 +152,9 @@ class STRIPTool(ToolAdapter):
             success=True,
             data={
                 "mean_entropy": result.mean_entropy,
+                "clean_entropy": result.clean_entropy,
+                "min_entropy": result.min_entropy,
+                "entropy_drop": result.entropy_drop,
                 "entropy_variance": result.entropy_variance,
                 "is_backdoor": result.is_backdoor,
                 "threshold": result.threshold,
