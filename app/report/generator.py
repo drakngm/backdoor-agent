@@ -11,6 +11,44 @@ from datetime import datetime, timezone
 from app.tools.schemas import RiskLevel, ToolOutput
 
 
+def trace_evidence(trace: Any) -> dict[str, Any]:
+    """Derive decision-chain / audit / data-flow evidence from a trace.
+
+    Accepts a FourLevelTrace (or any object with `.replay()`) or an already-built
+    replay dict. Returns fields with `evidence_incomplete` set when no trace is
+    available, so the report degrades gracefully.
+    """
+    replay = None
+    if trace is not None:
+        replay = trace.replay() if hasattr(trace, "replay") else trace
+
+    if replay is None:
+        return {
+            "decision_chain": None,
+            "audit": None,
+            "data_flow_summary": None,
+            "evidence_incomplete": True,
+        }
+
+    return {
+        "decision_chain": replay.get("decisions", []),
+        "audit": {
+            "verified": replay.get("audit_verified", False),
+            "entries": replay.get("audit"),
+        },
+        "data_flow_summary": [
+            {
+                "step_id": d.get("step_id"),
+                "tool_name": d.get("tool_name"),
+                "input_hash": d.get("input_hash"),
+                "output_hash": d.get("output_hash"),
+            }
+            for d in replay.get("data_flow", [])
+        ],
+        "evidence_incomplete": False,
+    }
+
+
 class ReportGenerator:
     """
     Aggregates multiple tool outputs into a unified detection report.
@@ -26,6 +64,7 @@ class ReportGenerator:
         tool_outputs: list[ToolOutput],
         model_path: str = "unknown",
         strategy: str = "unknown",
+        trace: Any = None,
     ) -> dict[str, Any]:
         """
         Generate a structured security report.
@@ -99,6 +138,7 @@ class ReportGenerator:
             },
         }
 
+        report.update(trace_evidence(trace))
         return report
 
     def format_text(self, report: dict[str, Any]) -> str:

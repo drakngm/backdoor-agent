@@ -29,6 +29,7 @@ from app.trace.trace import FourLevelTrace
 from app.core.trace import generate_trace_id
 from app.core.execution_trace import ExecutionTrace, EventType
 from app.core.logging import get_logger, inject_trace_id
+from app.report.generator import trace_evidence
 
 logger = get_logger(__name__)
 
@@ -196,7 +197,7 @@ class HybridAgent:
         # Session ends -> consolidate L1 -> L2 -> L3.
         consolidation = self.memory.consolidate()
 
-        report = self._build_report(metadata, final_decision, plan, results, consolidation)
+        report = self._build_report(metadata, final_decision, plan, results, consolidation, ftrace)
         trace.finalize()
 
         return HybridResult(
@@ -247,8 +248,9 @@ class HybridAgent:
         plan: DetectionPlan,
         results: dict[str, dict[str, Any]],
         consolidation: Optional[dict[str, int]] = None,
+        ftrace: Optional[FourLevelTrace] = None,
     ) -> dict[str, Any]:
-        return {
+        report = {
             "report_id": f"report-{plan.trace_id}",
             "trace_id": plan.trace_id,
             "model_path": metadata.path,
@@ -262,3 +264,5 @@ class HybridAgent:
             "memory_consolidation": consolidation or {},
             "decision_snapshot": plan.snapshot(),
         }
+        report.update(trace_evidence(ftrace))
+        return report
