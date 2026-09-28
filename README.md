@@ -70,6 +70,16 @@ pip install -r requirements.txt
 #   BACKDOOR_LLM_API_BASE_URL=https://opencode.ai/zen/go/v1
 #   BACKDOOR_LLM_API_KEY=sk-...
 #   BACKDOOR_LLM_MODEL=deepseek-v4-flash
+#
+# (Optional) real embedding provider + API security (default off)
+#   BACKDOOR_EMBEDDING_PROVIDER=openai
+#   BACKDOOR_EMBEDDING_API_KEY=sk-...
+#   BACKDOOR_API_AUTH_ENABLED=true
+#   BACKDOOR_API_AUTH_KEY=my-secret
+#   BACKDOOR_RATE_LIMIT_ENABLED=true
+#   BACKDOOR_RATE_LIMIT_PER_MINUTE=60
+#   NOTE: switching embedding provider changes vector dims — rebuild L2
+#         semantic memory (delete data/semantic_memory.json) to avoid mismatches.
 
 # Start development server
 python scripts/run_dev.py
@@ -85,6 +95,7 @@ API available at `http://localhost:8000/docs`
 | `POST` | `/run_agent` | Agent Mode: LLM → Tool → Observation Loop |
 | `POST` | `/run_workflow` | Workflow Mode: Planner → DAG → Parallel Exec |
 | `POST` | `/run_hybrid` | Hybrid Mode: Agent decisions → DAG → report |
+| `GET` | `/replay/{trace_id}` | Replay a persisted trace (full audit chain: decisions + data flow + audit) |
 
 ### Example: Hybrid Mode (Agent decision + DAG execution)
 
@@ -98,6 +109,7 @@ Response includes:
 - `verdict` / `confidence` / `final_answer`: final detection conclusion
 - `decisions`: the agent's decision chain (tool + params + `depends_on`)
 - `tool_results`: standardized tool outputs (risk level, confidence, is_backdoor)
+- `report`: aggregated report including `decision_chain` (CoT) + `audit` (verified) + `data_flow_summary`
 - `trace`: four-level trace replay — `decisions` (CoT), `data_flow` (hashed), `audit`
 - `memory_consolidation`: L1→L2→L3 consolidation counts
 - `mermaid`: execution flow visualization
@@ -125,6 +137,7 @@ backdoor-agent/
 ├── tests/                       # pytest test suite
 ├── docker/                      # Docker & docker-compose (interface reserved)
 ├── scripts/                     # Dev scripts (run_dev, init_redis)
+├── web/                         # Web command center (React frontend + FastAPI BFF, prefer-core + mock fallback)
 ├── PRD.md                       # Product requirements & milestone status
 └── README.md
 ```
@@ -154,6 +167,8 @@ pytest tests/ -v --asyncio-mode=auto
 | `neural_cleanse` | Neural Cleanse: trigger reverse-engineering + MAD | Mock |
 | `activation_clustering` | Activation Clustering: PCA/t-SNE + K-Means | Mock |
 | `strip_detect_real` | Real STRIP algorithm (pure Python, injectable predictor) | Real |
+| `neural_cleanse_real` | Real Neural Cleanse: trigger recovery + MAD outlier detection (pure Python) | Real |
+| `activation_clustering_real` | Real Activation Clustering: K-Means + silhouette on activations (pure Python) | Real |
 
 ## 📊 Scan Strategies
 
@@ -189,11 +204,11 @@ Every record is content-addressed; `replay()` reconstructs the full flow, and
 ## 🔮 Production Path
 
 1. ~~LLM Provider abstraction~~ ✅ (mock/openai/anthropic, configurable via `.env`)
-2. Implement Neural Cleanse & Activation Clustering real algorithms (STRIP done)
+2. ~~Implement Neural Cleanse & Activation Clustering real algorithms (STRIP done)~~ ✅
 3. Add Redis-backed task queues (Celery) for async workflows
-4. Replace hashing embedder with a real embedding service (e.g. `text-embedding-3-small`)
-5. Add `/replay/{trace_id}` endpoint backed by persisted trace storage
-6. Add authentication + rate limiting
+4. ~~Replace hashing embedder with a real embedding service (e.g. `text-embedding-3-small`)~~ ✅ (pluggable `openai` provider + hashing fallback)
+5. ~~Add `/replay/{trace_id}` endpoint backed by persisted trace storage~~ ✅
+6. ~~Add authentication + rate limiting~~ ✅ (configurable, default off)
 7. Integrate CI/CD webhooks
 
 ## 📄 License

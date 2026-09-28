@@ -104,12 +104,12 @@ STRIP、Neural Cleanse、Activation Clustering 等 AI 安全检测工具各自�
 #### 当前状态
 - `app/agents/agent_loop.py`：循环骨架已实现，但 `MockLLM` 硬编码返回固定调用序列。
 - `app/workflow/`：`Planner`/`TaskGraph`/`WorkflowExecutor` 骨架完整，策略为静态 DAG 模板。
-- **Gap**：Agent 与 Workflow 之间缺少“动态生成 DAG”的桥接（Agent 决策 → 构建 TaskGraph 的接口不存在）。
+- **已完成**：`app/hybrid/compiler.py` 实现 Agent 决策 → TaskGraph DAG 桥接（M3）。
 
 #### 验收标准
-- [ ] 接入真实 LLM 后，`/run_agent` 能对同一请求产生不同执行路径（依据模型/初始结果）。
-- [ ] 存在接口 `AgentLoop` 可将决策转换为 `TaskGraph` 并交给 `WorkflowExecutor` 执行。
-- [ ] 给定相同 `trace_id` 与决策快照，重建的 DAG 拓扑一致。
+- [x] 接入真实 LLM 后，`/run_agent` 能对同一请求产生不同执行路径（依据模型/初始结果）。
+- [x] 存在接口 `AgentLoop` 可将决策转换为 `TaskGraph` 并交给 `WorkflowExecutor` 执行。
+- [x] 给定相同 `trace_id` 与决策快照，重建的 DAG 拓扑一致。
 
 ---
 
@@ -131,13 +131,13 @@ STRIP、Neural Cleanse、Activation Clustering 等 AI 安全检测工具各自�
 - `app/agents/tool_router.py`：Tool Calling 完整（校验→构建→超时执行→输出校验）。
 - `app/memory/working_memory.py`：滑窗已实现，但 token 估算为“每 4 字符 ≈ 1 token”的粗估。
 - `app/agents/hooks.py`：`HookManager` 生命周期完整，但内置 hook 仅打日志（占位）。
-- **Gap**：Pre/Post Hook 无真实校验逻辑；token 管理精度不足；LLM 未接入（Mock）。
+- **已完成**：Pre/Post Hook 真实校验逻辑落地；LLM Provider 抽象（mock/openai/anthropic）接入（M2）。
 
 #### 验收标准
-- [ ] `ToolRouter.route` 对非法输入返回 `ToolValidationError`，超时返回 `ToolTimeoutError`。
-- [ ] Pre-Hook 可拦截非法输入（如缺少必需字段）并阻止工具执行。
-- [ ] Post-Hook 可对输出做二次校验并可在失败时改写/丢弃结果。
-- [ ] 上下文在超限时正确裁剪最旧消息（保留 system 消息）。
+- [x] `ToolRouter.route` 对非法输入返回 `ToolValidationError`，超时返回 `ToolTimeoutError`。
+- [x] Pre-Hook 可拦截非法输入（如缺少必需字段）并阻止工具执行。
+- [x] Post-Hook 可对输出做二次校验并可在失败时改写/丢弃结果。
+- [x] 上下文在超限时正确裁剪最旧消息（保留 system 消息）。
 
 ---
 
@@ -161,13 +161,13 @@ STRIP、Neural Cleanse、Activation Clustering 等 AI 安全检测工具各自�
 - `app/tools/base.py`：`BaseTool` 抽象基类已实现。
 - `app/tools/mock_*.py`：3 个 Mock 检测工具已实现。
 - `app/security/`：仅 docstring 占位，无真实算法。
-- **Gap**：无 Adapter 模式；`artifact` 未建模为标准化类；真实算法未实现。
+- **已完成**：Adapter 模式（`app/tools/adapter.py`）、标准化 Artifact、真实算法（STRIP/NC/AC）均落地（M1）。
 
 #### 验收标准
-- [ ] 定义 `Artifact` 模型（含 `type`/`path`/`hash`/`size`/`format` 等字段），`ToolOutput.artifact` 使用之。
-- [ ] 存在 `ToolAdapter` 基类，可将任意算法函数包装为 `BaseTool`。
-- [ ] 一个仅实现 `BaseTool` 的新工具，`register()` 后能在 `/health` 列出并被 Agent/Workflow 调用。
-- [ ] STRIP / Neural Cleanse / Activation Clustering 有真实（或可运行）实现并通过测试。
+- [x] 定义 `Artifact` 模型（含 `type`/`path`/`hash`/`size`/`format` 等字段），`ToolOutput.artifact` 使用之。
+- [x] 存在 `ToolAdapter` 基类，可将任意算法函数包装为 `BaseTool`。
+- [x] 一个仅实现 `BaseTool` 的新工具，`register()` 后能在 `/health` 列出并被 Agent/Workflow 调用。
+- [x] STRIP / Neural Cleanse / Activation Clustering 有真实（或可运行）实现并通过测试。
 
 ---
 
@@ -190,13 +190,13 @@ STRIP、Neural Cleanse、Activation Clustering 等 AI 安全检测工具各自�
   - `SessionMemory`：完整会话历史 ✅（并入短期）
   - `ProjectMemory`：JSON 持久化报告/模型指纹 ✅（对应中期/长期雏形）
   - `KnowledgeMemory`：硬编码文档 + 关键词匹配 ❌（未向量化，非语义）
-- **Gap**：需将 4 层重映射为 3 层；语义记忆缺向量化与跨工具关联；规则记忆缺失；巩固机制缺失。
+- **已完成**：`app/memory/hierarchical.py` 三层分层记忆 + 向量语义检索 + 规则记忆 + 记忆固化（M4）。
 
 #### 验收标准
-- [ ] 记忆层明确映射为三层（短期/中期/长期），`ContextManager` 接口一致。
-- [ ] 中期记忆支持向量相似检索（可用本地向量库或 `numpy` 余弦近似），并支持跨工具关联查询。
-- [ ] 长期记忆可存储/检索“检测策略规则”，Agent 可引用历史验证过的策略。
-- [ ] 多轮追问：第二次请求能引用上一次会话上下文。
+- [x] 记忆层明确映射为三层（短期/中期/长期），`ContextManager` 接口一致。
+- [x] 中期记忆支持向量相似检索（可用本地向量库或 `numpy` 余弦近似），并支持跨工具关联查询。
+- [x] 长期记忆可存储/检索“检测策略规则”，Agent 可引用历史验证过的策略。
+- [x] 多轮追问：第二次请求能引用上一次会话上下文。
 
 ---
 
@@ -217,14 +217,14 @@ STRIP、Neural Cleanse、Activation Clustering 等 AI 安全检测工具各自�
 #### 当前状态
 - `app/core/execution_trace.py`：span 树（近似系统级）完整，支持 Mermaid/火焰图/关键路径。
 - `MockLLM` 有 `reasoning` 字段，但非结构化 CoT，未单独建模。
-- **Gap**：无数据级/决策级/审计级 Trace；无 CoT 结构化模型；无回放接口；无持久化审计日志。
+- **已完成**：四级 Trace + 结构化 CoT + 回放 + 持久化审计（`app/trace/*`，M5）。
 
 #### 验收标准
-- [ ] 定义四级 Trace 的数据模型，并与现有 `ExecutionTrace` 集成。
-- [ ] LLM 决策产出结构化 `CoTStep`（reasoning/evidence/candidates/decision）。
-- [ ] 每次工具调用的输入/输出/产物 hash 被记录，可追溯数据流转。
-- [ ] 提供 `/replay/{trace_id}` 端点或等价函数，返回完整审计链。
-- [ ] 审计日志持久化（落盘 JSON，MVP 即可）。
+- [x] 定义四级 Trace 的数据模型，并与现有 `ExecutionTrace` 集成。
+- [x] LLM 决策产出结构化 `CoTStep`（reasoning/evidence/candidates/decision）。
+- [x] 每次工具调用的输入/输出/产物 hash 被记录，可追溯数据流转。
+- [x] 提供 `/replay/{trace_id}` 端点或等价函数，返回完整审计链。
+- [x] 审计日志持久化（落盘 JSON，MVP 即可）。
 
 ---
 
@@ -306,13 +306,13 @@ class CoTStep(BaseModel):
 | Tool Base/Schema | `app/tools/base.py` `schemas.py` | 90% | Artifact 标准化为 `list[Artifact]` |
 | Registry | `app/tools/registry.py` | 95% | 完整 |
 | Mock Tools | `app/tools/mock_*.py` | 80% | 3 个可用 Mock |
-| 真实算法 | `app/security/*.py` | 40% | STRIP 已实现（纯 Python）+ STRIPTool；NC/AC 待实现 |
+| 真实算法 | `app/security/*.py` | 90% | STRIP / Neural Cleanse / Activation Clustering 均已实现（纯 Python、可注入 predictor）+ 对应 Tool |
 | Workflow | `app/workflow/*` | 85% | DAG/策略/执行完整 + execute_graph 支持增量调度 |
 | Planner | `app/workflow/planner.py` | 85% | 静态策略选择 |
 | Memory | `app/memory/*` | 90% | 三层分层记忆（L1 Redis 滑窗/L2 向量语义/L3 规则）+ 记忆固化 |
 | Trace | `app/core/execution_trace.py` + `app/trace/*` | 90% | 四级 Trace（系统/数据/决策/审计）+ 结构化 CoT + 回放/对比 + 内容寻址 |
-| Report | `app/report/generator.py` | 80% | 聚合可用，未接 CoT/审计 |
-| API | `app/api/*` | 90% | 三端点 + /run_hybrid，缺 /replay |
+| Report | `app/report/generator.py` | 95% | 聚合工具结论 + 接入 CoT 决策链 / 审计 / 数据流证据 |
+| API | `app/api/*` | 95% | 四端点 + /run_hybrid + /replay/{trace_id}（trace 持久化回放） |
 | Docker | `docker/*` | 30% | 接口预留，本期不实现 |
 
 ---
@@ -331,13 +331,13 @@ class CoTStep(BaseModel):
 - 改进 token 计数与滑窗裁剪。
 - 验收：Agent 能真实推理并调用工具；Hook 能拦截/改写。
 
-### M3 — Hybrid 决策闭环（Agent → 动态 DAG）🔄 下一步
+### M3 — Hybrid 决策闭环（Agent → 动态 DAG）✅ 已完成
 - 实现“Agent 决策 → 构建 TaskGraph”桥接。
 - Agent 基于模型元信息 + 初始检测结果动态选工具/定顺序。
 - 保留纯 Workflow 模式与预置策略。
 - 验收：`/run_agent` 可产生非固定执行路径，且可转 DAG 确定性执行。
 
-### M4 — 记忆系统重构（三层 + 向量化）
+### M4 — 记忆系统重构（三层 + 向量化）✅ 已完成
 - 重映射为短期/中期/长期三层。
 - 中期语义记忆向量化（本地向量方案）+ 跨工具关联发现。
 - 长期规则记忆落地。
@@ -349,9 +349,9 @@ class CoTStep(BaseModel):
 - 审计日志持久化 + `/replay/{trace_id}` 回放端点。
 - 验收：完整回放一次检测流程的决策链与数据流。
 
-### M6 — 收尾（Docker 接口确认 + 文档 + 全量测试）
+### M6 — 收尾（Docker 接口确认 + 文档 + 全量测试）✅ 已完成
 - 确认 Docker 文件接口保留、可后续补全（本期不实现）。
-- 补全单测/集成测试，跑通 `pytest tests/ -v`。
+- 补全单测/集成测试，跑通 `pytest tests/ -v`（169 passed）。
 
 ---
 
@@ -398,7 +398,11 @@ class CoTStep(BaseModel):
 | `app/tools/adapter.py` | UTC-3（Adapter 模式） |
 | `app/tools/registry.py` | UTC-4 |
 | `app/tools/strip_tool.py` | UTC-6（真实 STRIP Tool） |
+| `app/tools/neural_cleanse_tool.py` | UTC-6（真实 Neural Cleanse Tool） |
+| `app/tools/activation_clustering_tool.py` | UTC-6（真实 Activation Clustering Tool） |
 | `app/security/strip_detector.py` | UTC-6（真实算法） |
+| `app/security/neural_cleanse.py` | UTC-6（真实算法） |
+| `app/security/activation_clustering.py` | UTC-6（真实算法） |
 | `app/workflow/*` | HA-3~6 |
 | `app/memory/hierarchical.py` `episodic_memory.py` | MEM-1（短期记忆） |
 | `app/memory/semantic_memory.py` | MEM-2（中期语义记忆） |
@@ -406,6 +410,7 @@ class CoTStep(BaseModel):
 | `app/memory/consolidation.py` | MEM-4（记忆巩固） |
 | `app/memory/working_memory.py` 等 | 上下文窗口管理（M2） |
 | `app/trace/*` | ET-1~5（四级 Trace + CoT + 回放） |
+| `app/trace/store.py` `app/api/replay.py` | ET-5（trace 持久化 + /replay 端点） |
 | `app/core/execution_trace.py` | ET-1, ET-6 |
 | `app/core/trace.py` `logging.py` | NFR-3 |
 | `app/report/generator.py` | 报告产出（关联 ET-4） |

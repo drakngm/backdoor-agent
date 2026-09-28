@@ -80,6 +80,7 @@ API 访问地址：`http://localhost:8000/docs`
 | `POST` | `/run_agent` | Agent 模式：LLM → 工具 → 观察循环 |
 | `POST` | `/run_workflow` | Workflow 模式：Planner → DAG → 并行执行 |
 | `POST` | `/run_hybrid` | Hybrid 模式：Agent 决策 → DAG → 报告 |
+| `GET` | `/replay/{trace_id}` | 回放已持久化的 Trace（完整审计链：决策 + 数据流 + 审计） |
 
 ### 示例：Hybrid 模式（Agent 决策 + DAG 执行）
 
@@ -93,6 +94,7 @@ curl -X POST http://localhost:8000/run_hybrid \
 - `verdict` / `confidence` / `final_answer`：最终检测结论
 - `decisions`：Agent 的决策链（工具 + 参数 + `depends_on`）
 - `tool_results`：标准化工具输出（风险等级、置信度、is_backdoor）
+- `report`：聚合报告，含 `decision_chain`（CoT）+ `audit`（verified）+ `data_flow_summary`
 - `trace`：四级 Trace 回放——`decisions`（CoT）、`data_flow`（哈希）、`audit`
 - `memory_consolidation`：L1→L2→L3 固化计数
 - `mermaid`：执行流程可视化
@@ -120,6 +122,7 @@ backdoor-agent/
 ├── tests/                       # pytest 测试套件
 ├── docker/                      # Docker 与 docker-compose（接口预留）
 ├── scripts/                     # 开发脚本（run_dev, init_redis）
+├── web/                         # Web 指挥中心（React 前端 + FastAPI BFF，优先核心 + mock 回退）
 ├── PRD.md                       # 产品需求与里程碑状态
 └── README.md
 ```
@@ -149,6 +152,8 @@ pytest tests/ -v --asyncio-mode=auto
 | `neural_cleanse` | Neural Cleanse：触发器逆向 + MAD | Mock |
 | `activation_clustering` | Activation Clustering：PCA/t-SNE + K-Means | Mock |
 | `strip_detect_real` | 真实 STRIP 算法（纯 Python，可注入预测器） | 真实实现 |
+| `neural_cleanse_real` | 真实 Neural Cleanse：触发器逆向 + MAD 异常检测（纯 Python） | 真实实现 |
+| `activation_clustering_real` | 真实 Activation Clustering：激活 K-Means + silhouette（纯 Python） | 真实实现 |
 
 对应算法原型见 `app/security/`，真实算法通过 `ToolAdapter` 封装为标准 Tool。
 
@@ -185,11 +190,11 @@ L4 审计级   → 只追加、哈希链不可变日志（verify() 可检测篡�
 ## 🔮 后续规划
 
 1. ~~LLM Provider 抽象~~ ✅（mock/openai/anthropic，可通过 `.env` 配置）
-2. 实现 Neural Cleanse 与 Activation Clustering 真实算法（STRIP 已完成）
+2. ~~实现 Neural Cleanse 与 Activation Clustering 真实算法~~ ✅
 3. 引入 Redis 任务队列（Celery）支持异步工作流
-4. 将哈希向量器替换为真实嵌入服务（如 `text-embedding-3-small`）
-5. 基于持久化 Trace 存储新增 `/replay/{trace_id}` 端点
-6. 增加认证与限流
+4. ~~将哈希向量器替换为真实嵌入服务~~ ✅（可插拔 `openai` provider + 哈希回退）
+5. ~~基于持久化 Trace 存储新增 `/replay/{trace_id}` 端点~~ ✅
+6. ~~增加认证与限流~~ ✅（可配置，默认关闭）
 7. 集成 CI/CD Webhook
 
 ## 📄 License
