@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from app.core.config import get_config
 from app.core.logging import get_logger
-from app.memory.embedder import EmbedderLike, HashingEmbedder
+from app.memory.embedder import EmbedderLike, create_embedder
 
 logger = get_logger(__name__)
 
@@ -30,7 +30,7 @@ class SemanticMemory:
         embedder: Optional[EmbedderLike] = None,
         filepath: Optional[str] = None,
     ):
-        self.embedder = embedder or HashingEmbedder()
+        self.embedder = embedder or create_embedder()
         self.filepath = filepath or get_config().semantic_memory_path
         self._entries: list[dict[str, Any]] = []
         self._load()

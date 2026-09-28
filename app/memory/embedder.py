@@ -15,6 +15,12 @@ import math
 import re
 from typing import Protocol
 
+import httpx
+
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 # ASCII words + individual CJK characters (Chinese has no spaces).
 _TOKEN_RE = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]")
 
@@ -62,3 +68,78 @@ class HashingEmbedder:
 
     def similarity(self, a: list[float], b: list[float]) -> float:
         return cosine_similarity(a, b)
+
+
+class OpenAIEmbedder:
+    """Real embedding via an OpenAI-compatible `/embeddings` endpoint (sync)."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str = "text-embedding-3-small",
+        base_url: str = "https://api.openai.com/v1",
+        timeout: float = 10.0,
+        transport=None,
+    ):
+        self.api_key = api_key
+        self.model = model
+        self.base_url = (base_url or "").rstrip("/")
+        self.timeout = timeout
+        self._transport = transport
+
+    def embed(self, text: str) -> list[float]:
+        if not self.api_key:
+            raise ValueError("embedding api_key is required for the openai provider")
+        with httpx.Client(timeout=self.timeout, transport=self._transport) as client:
+            resp = client.post(
+                f"{self.base_url}/embeddings",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={"model": self.model, "input": text},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["data"][0]["embedding"]
+
+    def similarity(self, a: list[float], b: list[float]) -> float:
+        return cosine_similarity(a, b)
+
+
+class FallbackEmbedder:
+    """Wraps a primary embedder and falls back to a secondary on failure."""
+
+    def __init__(self, primary, fallback):
+        self.primary = primary
+        self.fallback = fallback
+
+    def embed(self, text: str) -> list[float]:
+        try:
+            return self.primary.embed(text)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"embedding provider failed, falling back to hashing: {exc}")
+            return self.fallback.embed(text)
+
+    def similarity(self, a: list[float], b: list[float]) -> float:
+        return cosine_similarity(a, b)
+
+
+def create_embedder(
+    provider: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+    timeout: float | None = None,
+):
+    """Build the configured embedder (default: hashing; openai: fallback-wrapped)."""
+    from app.core.config import get_config
+
+    cfg = get_config()
+    resolved = provider or cfg.embedding_provider
+    if resolved == "openai":
+        primary = OpenAIEmbedder(
+            api_key=api_key or cfg.embedding_api_key,
+            model=model or cfg.embedding_model or "text-embedding-3-small",
+            base_url=base_url or cfg.embedding_api_base_url or "https://api.openai.com/v1",
+            timeout=timeout if timeout is not None else cfg.embedding_timeout_seconds,
+        )
+        return FallbackEmbedder(primary, HashingEmbedder())
+    return HashingEmbedder()

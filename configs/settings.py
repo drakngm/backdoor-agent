@@ -59,6 +59,19 @@ class Settings(BaseSettings):
     # ---- Security scan defaults ----
     default_scan_strategy: str = "fast_scan"
 
+    # ---- Embedding (L2 semantic memory) ----
+    embedding_provider: str = "hashing"  # hashing | openai
+    embedding_api_base_url: Optional[str] = None
+    embedding_api_key: Optional[str] = None
+    embedding_model: Optional[str] = None  # None -> text-embedding-3-small
+    embedding_timeout_seconds: float = 10.0
+
+    # ---- API security (default off) ----
+    api_auth_enabled: bool = False
+    api_auth_key: Optional[str] = None
+    rate_limit_enabled: bool = False
+    rate_limit_per_minute: int = 60
+
     model_config = {
         "env_prefix": "BACKDOOR_",
         "env_file": ".env",
