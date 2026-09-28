@@ -49,7 +49,7 @@ async def _call_core(mode: str, req: ExecuteRequest) -> dict | None:
                 resp = await client.post(url, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-                data["source"] = "backend"
+                data["source"] = "core"
                 return data
     except Exception as exc:  # noqa: BLE001
         logger.warning("Core backend unreachable (%s), falling back to mock: %s", mode, exc)

@@ -144,5 +144,5 @@ export interface ExecuteResult {
   tool_results?: Record<string, unknown>[]
   mermaid?: string
   critical_path?: string[]
-  source: 'backend' | 'mock'
+  source: 'core' | 'mock'
 }

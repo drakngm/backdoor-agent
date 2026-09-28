@@ -44,3 +44,12 @@ uvicorn app.main:app --port 8001
 
 前端 API 客户端（`frontend/src/api/client.ts`）在 BFF 不可用时会自动降级为
 本地 mock 数据（`frontend/src/api/mock.ts`），因此即使不启动任何后端，界面仍可完整演示。
+
+## 数据来源标注
+
+BFF 优先读取核心后端真实数据，核心不可用（且 `ALLOW_MOCK_FALLBACK=true`）时回退仿真数据。每个响应都带 `source` 字段：
+
+- `source: "core"` —— 来自核心后端（如 `/dashboard/health`、`/detection/detectors`、`/execute/*`）
+- `source: "mock"` —— 仿真数据
+
+当 `ALLOW_MOCK_FALLBACK=false` 且核心不可达时，BFF 返回 `503`；前端据此显示降级状态（执行结果上的 `MOCK FALLBACK` 徽标、顶栏的 `DEGRADED` 连接态）。

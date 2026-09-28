@@ -94,7 +94,10 @@ export default function HybridAgentPage() {
           <GlassCard>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-[11px] font-bold tracking-[0.14em] text-slate-300 uppercase">Decision Chain</h3>
-              <Badge tone="purple">Agent Loop</Badge>
+              <div className="flex items-center gap-2">
+                {result.source === 'mock' && <Badge tone="gray">MOCK FALLBACK</Badge>}
+                <Badge tone="purple">Agent Loop</Badge>
+              </div>
             </div>
             <div className="space-y-2">
               {(result.decisions ?? []).map((d, i) => (
